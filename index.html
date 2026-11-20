@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Карта этапа 2 заезда</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap">
+<style>
+/* Layout: бесконечный холст. Сверху эфирная сетка и «что решить», ниже подробные таймлайны каналов и чата. Клик по карточке сетки подлетает к нужному дню. */
+:root{
+  --bg:#e6e0d4; --zone:#f7f2e8; --surface:#ffffff; --fg:#17202a; --muted:#5b6876; --line:#d6dde5;
+  --taxi:#f4c20d; --taxi-ink:#17202a; --taxi-soft:#fde98f;
+  --open-bg:#e8f1fb; --open-bar:#2f7fd0;
+  --hook-bg:#fff6d6; --hook-bar:#d9a400;
+  --chat-bg:#e4f5ee; --chat-bar:#1f9d6b;
+  --max-bg:#fdf0e1; --max-bar:#d9822b;
+  --mail-bg:#eef0f3; --mail-bar:#7d8a98;
+  --q-bg:#fde8e8; --q-ink:#b42318; --goal:#6d3fd1; --goal-bg:#efe8fc; --edit:#d92d20;
+  --arrow:#2f7fd0; --chip:#17202a; --chip-ink:#ffffff;
+  --font-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-head:"Manrope","Inter",system-ui,sans-serif;
+}
+
+html,body{height:100%}
+:root{color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.45;overflow:hidden}
+
+/* верхняя панель */
+.bar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));
+  background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.bar .name{font-family:var(--font-head);font-weight:800;font-size:15px;margin-right:8px;display:flex;align-items:center;gap:8px}
+.checker{width:22px;height:14px;border-radius:2px;background:repeating-conic-gradient(var(--fg) 0 25%, var(--bg) 0 50%) 0 0/7px 7px}
+.bar button{font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.bar button:hover{border-color:var(--fg)}
+.bar button:focus-visible{outline:2px solid var(--arrow);outline-offset:2px}
+.bar .sp{flex:1}
+.bar kbd{font-family:inherit;font-size:11px;color:var(--muted);margin-left:4px}
+
+/* холст */
+#vp{position:fixed;inset:0;cursor:grab;touch-action:none}
+#vp.drag{cursor:grabbing}
+#world{position:absolute;left:0;top:0;width:max-content;transform-origin:0 0;display:grid;grid-template-columns:auto auto;column-gap:260px;row-gap:320px;padding:200px;align-items:start}
+.zone{background:var(--zone);border:1px solid var(--line);border-radius:18px;padding:36px 40px;display:flex;flex-direction:column;gap:22px;position:relative}
+.zone.wide{grid-column:1 / -1}
+.ztitle{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.ztitle h2{font-family:var(--font-head);font-size:34px;line-height:1.1;margin:0}
+.ztag{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lead{margin:0;color:var(--muted);max-width:110ch;font-size:15px}
+.back{font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer;margin-left:auto}
+
+/* эфирная сетка */
+.grid{display:grid;grid-template-columns:170px repeat(7,250px);gap:10px}
+.gh{font-family:var(--font-head);font-weight:800;font-size:19px;padding:4px 2px}
+.gh small{display:block;font-family:var(--font-body);font-weight:600;font-size:12px;color:var(--muted)}
+.rowh{font-weight:700;font-size:14px;padding:10px 12px;border-radius:10px;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.rowh small{font-weight:500;color:var(--muted);font-size:12px}
+.cell{display:flex;flex-direction:column;gap:8px;min-width:0}
+.phase{grid-column:span 3;background:var(--chip);color:var(--chip-ink);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
+.phase.b{grid-column:span 4;background:var(--taxi);color:var(--taxi-ink)}
+.count{display:flex;align-items:flex-start}
+.chip{font-size:11.5px;font-weight:600;letter-spacing:.03em;padding:3px 9px;border-radius:999px;background:var(--chip);color:var(--chip-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip.taxi{background:var(--taxi);color:var(--taxi-ink)}
+.chip.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.card{border-radius:8px;padding:9px 11px;font-size:13.5px;line-height:1.4;border-left:3px solid;position:relative}
+.card b{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.card.ch{background:var(--open-bg);border-color:var(--open-bar)}
+.card.chat{background:var(--chat-bg);border-color:var(--chat-bar)}
+.card.max{background:var(--max-bg);border-color:var(--max-bar)}
+.card.mail{background:var(--mail-bg);border-color:var(--mail-bar)}
+.rowh.ch{background:var(--open-bg)} .rowh.chat{background:var(--chat-bg)} .rowh.max{background:var(--max-bg)} .rowh.mail{background:var(--mail-bg)}
+[data-go]{cursor:pointer}
+.card[data-go]::after{content:"→";position:absolute;right:9px;top:7px;font-weight:700;color:var(--muted)}
+.card[data-go]:hover{outline:2px solid var(--arrow);outline-offset:1px}
+.empty{color:var(--muted);font-size:12.5px;padding:9px 4px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border-radius:3px;border-left:3px solid}
+.sw.o{background:var(--open-bg);border-color:var(--open-bar)}
+.sw.h{background:var(--hook-bg);border-color:var(--hook-bar)}
+.sw.c{background:var(--chat-bg);border-color:var(--chat-bar)}
+.sw.m{background:var(--max-bg);border-color:var(--max-bar)}
+.sw.r{background:var(--mail-bg);border-color:var(--mail-bar)}
+.sw.p{background:var(--surface);border:1px solid var(--line)}
+.q{background:var(--q-bg);color:var(--q-ink);font-weight:600;font-size:.88em;padding:0 5px;border-radius:4px;white-space:nowrap}
+.v{color:var(--muted);font-style:italic;font-size:.92em}
+
+/* что решить */
+.todo{width:640px}
+.todo ol{margin:0;padding-left:24px;display:flex;flex-direction:column;gap:10px;font-size:15.5px}
+.todo li span{color:var(--muted);font-size:13px;display:block}
+
+/* таймлайны */
+.track{position:relative;display:grid;grid-template-columns:repeat(7,300px);column-gap:70px;align-items:start;padding:6px 4px 4px}
+svg.arrows{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.day{display:flex;flex-direction:column;gap:10px;min-width:0;position:relative;z-index:1;border-radius:12px}
+.day.flash{animation:flash 1.6s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 6px var(--taxi)}100%{box-shadow:0 0 0 6px transparent}}
+.dhead{display:flex;flex-direction:column;gap:6px}
+.date{font-family:var(--font-head);font-weight:800;font-size:22px}
+.meta{display:flex;flex-wrap:wrap;gap:6px}
+.blk{border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.lbl i{font-style:normal;letter-spacing:.02em;text-transform:none;font-weight:600}
+.open{background:var(--open-bg);border-left:3px solid var(--open-bar)}
+.open.c{background:var(--chat-bg);border-left-color:var(--chat-bar)}
+.open p,.hook p{margin:0;font-weight:600}
+.post{background:var(--surface);border:1px solid var(--line)}
+.post.m{background:var(--max-bg);border-color:transparent;border-left:3px solid var(--max-bar)}
+.post ul{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.post .extra{margin:2px 0 0;padding-top:8px;border-top:1px dashed var(--line);font-size:13px}
+.hook{background:var(--hook-bg);border-left:3px solid var(--hook-bar)}
+.core{background:var(--open-bg);border-left:3px solid var(--open-bar);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.core.c{background:var(--chat-bg);border-left-color:var(--chat-bar)}
+.core p{margin:0;font-weight:600}
+.unit{background:var(--surface);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.unit.m{border-color:var(--max-bar)}
+.unit.opt{border-style:dashed}
+.uhead{display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:9px 12px 0}
+.unum{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.unit.m .unum{color:var(--max-bar)}
+.ufor{font-size:11.5px;font-weight:600;color:var(--muted);text-align:right}
+.unit h4{margin:0;padding:4px 12px 0;font-family:var(--font-head);font-size:16px;line-height:1.25}
+.unit ul{margin:0;padding:6px 12px 10px 28px;display:flex;flex-direction:column;gap:4px}
+.act{background:var(--hook-bg);border-top:1px solid var(--line);padding:7px 12px;font-size:13px}
+.act b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:6px}
+.trig{background:var(--taxi-soft);border-top:1px solid var(--line);padding:7px 12px;font-size:13px;font-weight:600}
+.trig b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:6px}
+.unit ul ul{padding:4px 0 0 18px}
+.sw.t{background:var(--taxi-soft);border-color:var(--taxi)}
+.callout{position:relative;margin:4px 0 0 26px;background:var(--q-bg);border:1.5px dashed var(--q-ink);border-radius:8px;padding:8px 11px;display:flex;flex-direction:column;gap:3px;font-size:13px}
+.callout::before{content:"";position:absolute;left:-20px;top:-16px;width:18px;height:34px;border-left:2px solid var(--q-ink);border-bottom:2px solid var(--q-ink);border-bottom-left-radius:8px}
+.callout::after{content:"";position:absolute;left:-6px;top:12px;border:6px solid transparent;border-left-color:var(--q-ink)}
+.callout .clbl{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--q-ink)}
+.callout b{font-size:14px}
+.callout p{margin:0}
+.sw.x{background:var(--q-bg);border:1.5px dashed var(--q-ink)}
+.goal{position:relative;margin:30px 0 4px 26px;background:var(--goal-bg);border:2px solid var(--goal);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:5px;color:var(--fg);font-size:14px}
+.goal .clbl{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--goal)}
+.goal b{font-weight:800;line-height:1.3}
+.garrow{position:absolute;left:-30px;top:-46px;width:34px;height:52px;color:var(--goal)}
+.tie{font-size:12px;color:var(--muted);text-align:center;margin:-4px 0}
+.notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.note{background:var(--bg);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.note h3{font-family:var(--font-head);font-size:15px;margin:0}
+.note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.note p{margin:0}
+
+/* режим редактирования */
+.unit,.core{position:relative}
+#btnEdit.on{background:var(--taxi);color:var(--taxi-ink);border-color:var(--taxi)}
+#btnSave{background:var(--chip);color:var(--chip-ink);border-color:var(--chip)}
+body.editing #world h2:hover,body.editing #world h3:hover,body.editing #world h4:hover,body.editing #world li:hover,body.editing #world p:hover,body.editing .card:hover,body.editing .act:hover,body.editing .trig:hover{outline:1px dashed var(--muted);outline-offset:2px}
+body.editing #world{cursor:text}
+body.editing .card[data-go]::after{display:none}
+.edt{position:absolute;top:4px;right:4px;display:flex;gap:4px;z-index:5;user-select:none}
+.edt button{font:inherit;font-size:12px;line-height:1;width:22px;height:22px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;padding:0}
+.edt button[data-act="del"]:hover{background:var(--q-bg);color:var(--q-ink);border-color:var(--q-ink)}
+.ed{color:var(--edit)}
+#btnClear{color:var(--edit)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;background:var(--chip);color:var(--chip-ink);padding:9px 16px;border-radius:999px;font-weight:600;font-size:13px}
+.draftbar{position:fixed;left:50%;top:calc(80px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.15);font-size:13px}
+.draftbar button{font:inherit;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+
+.help{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:20;font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+@media (max-width:700px){.bar kbd,.help{display:none}}
+</style>
+</head>
+<body>
+
+<div class="bar" role="toolbar" aria-label="Навигация по карте">
+  <span class="name"><span class="checker" aria-hidden="true"></span>Этап 2 · Регистрация</span>
+  <button data-nav="all">Вся карта<kbd>0</kbd></button>
+  <button data-nav="grid">Эфирная сетка<kbd>1</kbd></button>
+  <button data-nav="channels">Каналы TG и MAX<kbd>2</kbd></button>
+  <button data-nav="chat">Чат акции<kbd>3</kbd></button>
+  <button data-nav="todo">Что решить<kbd>4</kbd></button>
+  <span class="sp"></span>
+  <button id="btnEdit">✎ Редактировать</button>
+  <button id="btnClear" hidden title="Сделать все красные правки обычным текстом">Снять красный</button>
+  <button id="btnSave" hidden>Сохранить<kbd>⌘S</kbd></button>
+  <button data-zoom="-1" aria-label="Отдалить">−</button>
+  <button data-zoom="1" aria-label="Приблизить">+</button>
+</div>
+
+<div id="vp">
+<div id="world">
+
+<!-- ================= ЭФИРНАЯ СЕТКА ================= -->
+<section class="zone" id="grid">
+  <div class="ztitle"><span class="ztag">24–30 ноября</span><h2>Эфирная сетка этапа 2</h2></div>
+  <p class="lead"><b>Цель этапа:</b> зарегистрировать как можно больше людей на акцию в приложении и перевести их в чат акции. Две точки фокуса: открыли регистрацию и ведём на эфир, провели эфир и ведём на старт 1 декабря. Нажмите на карточку со стрелкой, чтобы открыть подробный план дня.</p>
+  <div class="legend">
+    <span><i class="sw o"></i>Посты в каналах TG и MAX</span>
+    <span><i class="sw c"></i>Чат акции</span>
+    <span><i class="sw m"></i>Максим: видео, кружки, эфир</span>
+  </div>
+
+  <div class="grid">
+    <div></div>
+    <div class="gh">24.11<small>вторник</small></div>
+    <div class="gh">25.11<small>среда</small></div>
+    <div class="gh">26.11<small>четверг</small></div>
+    <div class="gh">27.11<small>пятница</small></div>
+    <div class="gh">28.11<small>суббота</small></div>
+    <div class="gh">29.11<small>воскресенье</small></div>
+    <div class="gh">30.11<small>понедельник</small></div>
+
+    <div class="rowh">Фокус</div>
+    <div class="phase">Регистрация открыта → ведём на эфир</div>
+    <div class="phase b">Эфир прошёл → ведём на старт 1 декабря</div>
+
+    <div class="rowh">Отсчёт<small>в конце постов</small></div>
+    <div class="count"><span class="chip taxi">До эфира 2 дня</span></div>
+    <div class="count"><span class="chip taxi">До эфира 1 день</span></div>
+    <div class="count"><span class="chip taxi">Эфир сегодня</span></div>
+    <div class="count"><span class="chip taxi">До старта 4 дня</span></div>
+    <div class="count"><span class="chip taxi">До старта 3 дня</span></div>
+    <div class="count"><span class="chip taxi">До старта 2 дня</span></div>
+    <div class="count"><span class="chip taxi">До старта 24 часа</span></div>
+
+    <div class="rowh ch">Каналы TG и MAX<small>основной и D</small></div>
+    <div class="cell">
+      <div class="card ch" data-go="ch-24"><b>Пост 1</b>Регистрация открыта: как попасть в три шага.</div>
+      <div class="card ch" data-go="ch-24"><b>Пост 2 · карусель</b>Инструкция по шагам и зачем вступать в чат.</div>
+    </div>
+    <div class="cell">
+      <div class="card ch" data-go="ch-25"><b>Пост</b>Лиги: главный приз может выиграть любой таксопарк, подробно на эфире.</div>
+      <div class="card ch" data-go="ch-25"><b>Кружок Максима</b>Размер таксопарка не важен: считаем только новых водителей с 1.12.</div>
+    </div>
+    <div class="cell">
+      <div class="card ch" data-go="ch-26"><b>Пост · утро</b>Сегодня эфир: что разберём.</div>
+      <div class="card ch" data-go="ch-26"><b>Напоминание</b>Эфир через 10 минут, ссылка.</div>
+      <div class="card max" data-go="ch-26"><b>Эфир Максима · вечер</b>20–30 минут: как устроен заезд, призы, лиги, вопросы.</div>
+    </div>
+    <div class="cell">
+      <div class="card ch" data-go="ch-27"><b>Пост 1 · ~12:00</b>Запись эфира: что разобрали.</div>
+      <div class="card ch" data-go="ch-27"><b>Пост 2 · ~18:00</b>Конспект эфира для тех, кто не успел посмотреть.</div>
+    </div>
+    <div class="cell"><div class="card ch" data-go="ch-28"><b>Пост</b>Декабрь закладывает фундамент: водители, пришедшие сейчас, кормят таксопарк до весны.</div></div>
+    <div class="cell"><div class="card ch" data-go="ch-29"><b>Карусель</b>Приложение iRuler: скриншоты, подробное видео в чате акции.</div></div>
+    <div class="cell"><div class="card ch" data-go="ch-30"><b>Пост</b>Последний день для идеального старта: завтра заезд.</div></div>
+
+    <div class="rowh chat">Чат акции<small>только записавшиеся</small></div>
+    <div class="cell">
+      <div class="card chat" data-go="chat-24"><b>Приветствие</b>Что это за чат, коротко.</div>
+      <div class="card chat" data-go="chat-24"><b>Закреп</b>Что будет в чате, даты, куда обращаться.</div>
+    </div>
+    <div class="cell">
+      <div class="card chat" data-go="chat-25"><b>Днём</b>Видео-обзор приложения.</div>
+      <div class="card chat" data-go="chat-25"><b>Кружок Максима · вечер</b>Задайте вопросы к эфиру.</div>
+      <div class="card chat" data-go="chat-25"><b>Пост</b>Сбор вопросов к эфиру.</div>
+    </div>
+    <div class="cell">
+      <div class="card chat" data-go="chat-26"><b>Пост · утро</b>Сегодня эфир, можно дописать вопрос.</div>
+      <div class="card chat" data-go="chat-26"><b>Напоминание</b>Эфир скоро.</div>
+      <div class="card chat" data-go="chat-26"><b>Ссылка</b>Начинаем, подключайтесь.</div>
+      <div class="card chat" data-go="chat-26" style="border-style:dashed"><b>По желанию</b>После эфира: спасибо, запись завтра.</div>
+    </div>
+    <div class="cell">
+      <div class="card chat" data-go="chat-27"><b>Пост · ~12:00</b>Запись эфира.</div>
+      <div class="card chat" data-go="chat-27"><b>Пост · ~18:00</b>Конспект эфира.</div>
+    </div>
+    <div class="cell"><div class="card chat" data-go="chat-28"><b>Материал к старту</b>Кейс Сергея: чем он выделил свой таксопарк.</div></div>
+    <div class="cell"><div class="card chat" data-go="chat-29"><b>Материал к старту</b>Калькулятор: посчитайте свою долю.</div></div>
+    <div class="cell">
+      <div class="card chat" data-go="chat-30"><b>Кружок Максима</b>Завтра старт.</div>
+      <div class="card chat" data-go="chat-30"><b>Пост</b>Чек-лист к старту <span class="q">обсудить</span></div>
+    </div>
+
+    <div class="rowh max">Максим<small>видео, кружки, эфир</small></div>
+    <div class="cell"><div class="empty">—</div></div>
+    <div class="cell">
+      <div class="card max" data-go="chat-25"><b>Видео</b>Обзор приложения, для чата.</div>
+      <div class="card max" data-go="chat-25"><b>Кружок</b>«Задайте вопросы к эфиру», для чата.</div>
+      <div class="card max" data-go="ch-25"><b>Кружок</b>«Размер таксопарка не важен», для каналов.</div>
+    </div>
+    <div class="cell"><div class="card max" data-go="ch-26"><b>Эфир</b>20–30 минут в <span class="q">18:00 или 19:00</span>: механика, призы, лиги, вопросы.</div></div>
+    <div class="cell"><div class="empty">—</div></div>
+    <div class="cell"><div class="empty">—</div></div>
+    <div class="cell"><div class="empty">—</div></div>
+    <div class="cell"><div class="card max" data-go="chat-30"><b>Кружок</b>«Завтра старт», для чата.</div></div>
+
+  </div>
+</section>
+
+<!-- ================= ЧТО РЕШИТЬ ================= -->
+<section class="zone todo" id="todo">
+  <div class="ztitle"><span class="ztag">Без этого не написать</span><h2>Что решить</h2><button class="back" data-go="grid">← К сетке</button></div>
+  <ol>
+    <li>Время эфира: 18:00 или 19:00?<span>Анонсы и посты об эфире 23–26.11</span></li>
+    <li>Финальная линейка призов.<span>Эфир 26.11</span></li>
+    <li>Лиги: называем пороги оборота или объясняем на пальцах?<span>Пост 25.11, эфир</span></li>
+    <li>Видны ли персональная цель и лига в приложении до 1.12?<span>Видео-обзор 25.11</span></li>
+    <li>Пост в чат 30.11: чек-лист к старту или другой формат?<span>Чат 30.11</span></li>
+  </ol>
+</section>
+
+<!-- ================= КАНАЛЫ ================= -->
+<section class="zone wide" id="channels">
+  <div class="ztitle"><span class="ztag">Основной канал и канал D · TG и MAX</span><h2>Посты в каналах: тезисный план</h2><button class="back" data-go="grid">← К сетке</button></div>
+  <div class="legend">
+    <span><i class="sw o"></i>Суть дня</span>
+    <span><i class="sw p"></i>Единица контента: название и тезисы</span>
+    <span><i class="sw t"></i>Триггер</span>
+    <span><i class="sw h"></i>Действие читателя</span>
+    <span><i class="sw x"></i>Выноска: что нужно, разбираем на созвоне</span>
+  </div>
+  <div class="track">
+
+    <section class="day" id="ch-24">
+      <div class="dhead"><div class="date">24.11 · вт</div>
+        <div class="meta"><span class="chip taxi">До эфира 2 дня</span><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Регистрация открыта, показываем, как записаться</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост</span><span class="ufor">все</span></div>
+        <h4>Регистрация открыта</h4>
+        <ul>
+          <li>Регистрация в «Новогодний заезд» открыта, участвовать могут все партнёры iRuler</li>
+          <li>Как попасть: перейти по ссылке и запросить код для входа → войти в приложение → записаться в акцию и заполнить анкету</li>
+          <li><i>С любым вопросом по регистрации поможет отдел заботы iRuler</i></li>
+        </ul>
+        <div class="trig"><b>Триггер</b>Подробная инструкция по шагам в следующем посте</div>
+        <div class="act"><b>Действие</b>Записаться</div>
+      </div>
+      <div class="tie">↓ сразу следом</div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Карусель + текст</span><span class="ufor">«кажется сложно»</span></div>
+        <h4>Инструкция по регистрации</h4>
+        <ul>
+          <li>Мы подготовили для вас подробную инструкцию: каждый шаг со скриншотом</li>
+          <li>Последний шаг: вступить в чат акции</li>
+          <li>Зачем вступать в чат:
+            <ul>
+              <li>видео-обзор приложения: где призы, персональная цель и шкала</li>
+              <li>перед эфиром соберём ваши вопросы, Максим ответит на них</li>
+              <li>материалы, которые помогут быстрее подключить водителей к старту</li>
+              <li>быстрые ответы на вопросы об акции</li>
+            </ul></li>
+        </ul>
+        <div class="act"><b>Действие</b>Пройти шаги и вступить в чат</div>
+      </div>
+      <div class="callout"><span class="clbl">Нужно для этого</span><b>Фактура для карусели</b><p>Скриншоты каждого шага регистрации: запрос кода, вход в приложение, страница акции, «Записаться», анкета, кнопка чата</p><p>Где взять и кто готовит?</p></div>
+    </section>
+
+    <section class="day" id="ch-25">
+      <div class="dhead"><div class="date">25.11 · ср</div>
+        <div class="meta"><span class="chip taxi">До эфира 1 день</span><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Главный приз может выиграть любой таксопарк. Как, расскажет Максим на эфире</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост</span><span class="ufor">небольшие таксопарки, «не увидели ценность»</span></div>
+        <h4>Как устроены главные призы: лиги</h4>
+        <ul>
+          <li>Дошли до персональной цели: получаете подарок. Дальше начинается борьба за главные призы</li>
+          <li>Главных призов девять: три лиги, по три приза в каждой</li>
+          <li>Лиги делятся по обороту таксопарка в ноябре <span class="q">пороги называем?</span></li>
+          <li>Поэтому вы соревнуетесь с таксопарками своего масштаба, а не с теми, у кого оборот в 10 раз больше</li>
+        </ul>
+        <div class="trig"><b>Триггер</b>Главный приз может взять любой таксопарк, какого бы размера он ни был. Как это сделать и почему это возможно, Максим подробно расскажет на эфире 26 ноября</div>
+        <div class="act"><b>Действие</b>Записаться и прийти на эфир</div>
+      </div>
+      <div class="unit m">
+        <div class="uhead"><span class="unum">2 · Кружок Максима</span><span class="ufor">небольшие таксопарки, D</span></div>
+        <h4>Размер таксопарка не имеет значения</h4>
+        <ul>
+          <li>Нас часто спрашивают: есть ли смысл участвовать, если таксопарк небольшой?</li>
+          <li>Есть. Любой таксопарк может выиграть главный приз</li>
+          <li>В зачёт идёт только оборот новых водителей, подключённых с 1 декабря. Неважно, сколько водителей у вас сейчас: все стартуют с нуля</li>
+          <li>Персональная цель у каждого своя, а за главные призы вы соревнуетесь внутри своей лиги</li>
+        </ul>
+        <div class="trig"><b>Триггер</b>Как повысить свои шансы на главный приз, расскажу завтра на эфире</div>
+        <div class="act"><b>Действие</b>Записаться и прийти на эфир</div>
+      </div>
+    </section>
+
+    <section class="day" id="ch-26">
+      <div class="dhead"><div class="date">26.11 · чт</div>
+        <div class="meta"><span class="chip taxi">Эфир сегодня</span><span class="chip ghost">3 единицы</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Собираем на эфир</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост · утро</span><span class="ufor">«ничего не поняли», «кажется сложно»</span></div>
+        <h4>Сегодня эфир</h4>
+        <ul>
+          <li>Сегодня в <span class="q">время</span> Максим проведёт эфир о «Новогоднем заезде», 20–30 минут</li>
+          <li>Что разберём: как считается персональная цель, как получить подарок, как устроены главные призы и лиги, почему выиграть может любой таксопарк</li>
+          <li>Ответим на ваши вопросы</li>
+          <li>Ещё не записались? Сделайте это до эфира</li>
+        </ul>
+        <div class="act"><b>Действие</b>Прийти на эфир, записаться до него</div>
+      </div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Напоминание</span><span class="ufor">за 10 минут</span></div>
+        <h4>Через 10 минут начинаем</h4>
+        <ul>
+          <li>Эфир через 10 минут</li>
+          <li>Заходите по ссылке заранее: на странице идёт обратный отсчёт до начала</li>
+        </ul>
+        <div class="act"><b>Действие</b>Перейти по ссылке</div>
+      </div>
+      <div class="unit m">
+        <div class="uhead"><span class="unum">3 · Эфир Максима</span><span class="ufor">20–30 минут, <span class="q">18:00 или 19:00</span></span></div>
+        <h4>Эфир о «Новогоднем заезде»</h4>
+        <ul>
+          <li>Как устроен заезд и что нужно, чтобы дойти до персональной цели</li>
+          <li>Как получить подарок</li>
+          <li>Главные призы и лиги: почему выиграть может любой таксопарк и как повысить свои шансы</li>
+          <li>Как зарегистрироваться</li>
+          <li>Ответы на вопросы</li>
+        </ul>
+        <div class="act"><b>Действие</b>Записаться и стартовать 1 декабря</div>
+      </div>
+      <div class="callout"><span class="clbl">Нужно для этого</span><b>Платформа эфира</b><p>Где проходит: Zoom или страница на Тильде с чатом под видео</p><p>От этого зависит текст анонса: нужно ли объяснять про камеру и звук</p></div>
+    </section>
+
+    <section class="day" id="ch-27">
+      <div class="dhead"><div class="date">27.11 · пт</div>
+        <div class="meta"><span class="chip taxi">До старта 4 дня</span><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Эфир для тех, кто не смог прийти: запись и конспект отдельно</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост · ~12:00</span><span class="ufor">«ничего не поняли»</span></div>
+        <h4>Запись эфира</h4>
+        <ul>
+          <li>Вчера Максим провёл эфир о «Новогоднем заезде»</li>
+          <li>Что разобрали: как считается персональная цель, как получить подарок, как устроены главные призы и лиги, почему выиграть может любой таксопарк, ответы на вопросы партнёров</li>
+          <li>Запись 20–30 минут, смотрите в удобное время</li>
+        </ul>
+        <div class="act"><b>Действие</b>Посмотреть запись и записаться</div>
+      </div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Пост · ~18:00</span><span class="ufor">нет времени на запись</span></div>
+        <h4>Конспект эфира</h4>
+        <ul>
+          <li>Не успели посмотреть запись? Мы собрали главное в конспект</li>
+          <li>Что внутри: как устроен заезд, персональная цель и подарок, главные призы и лиги, как зарегистрироваться по шагам, ключевые даты</li>
+          <li>Читается за несколько минут, можно скачать и держать под рукой</li>
+        </ul>
+        <div class="act"><b>Действие</b>Скачать конспект и записаться</div>
+      </div>
+    </section>
+
+    <section class="day" id="ch-28">
+      <div class="dhead"><div class="date">28.11 · сб</div>
+        <div class="meta"><span class="chip taxi">До старта 3 дня</span><span class="chip ghost">1 единица</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Водители, подключённые в декабре, кормят таксопарк весь следующий год</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост</span><span class="ufor">«не увидели ценность»</span></div>
+        <h4>Декабрь закладывает фундамент на весь год</h4>
+        <ul>
+          <li>Водителей вы ищете всегда. Но в декабре это выгоднее всего</li>
+          <li>Декабрь самый денежный месяц: заказов много, желающих их выполнять тоже, тариф дороже, чем был</li>
+          <li>Сейчас водителям легче всего прийти, и те, кто придёт сейчас, потом остаются</li>
+          <li>В январе спрос падает. Чем больше водителей вы подключите сейчас, тем больше запас прочности и денег в январе, феврале, марте, апреле и мае</li>
+        </ul>
+        <div class="trig"><b>Вывод</b>Сейчас вы закладываете фундамент на следующие полгода. А в этот месяц ещё и заезд: подарок за персональную цель и шанс на главный приз</div>
+        <div class="act"><b>Оффер</b>Записаться в заезд</div>
+      </div>
+    </section>
+
+    <section class="day" id="ch-29">
+      <div class="dhead"><div class="date">29.11 · вс</div>
+        <div class="meta"><span class="chip taxi">До старта 2 дня</span><span class="chip ghost">1 единица</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Приложение iRuler, о котором обещали рассказать 23.11</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Карусель + текст</span><span class="ufor">«не увидели ценность»</span></div>
+        <h4>Пульт управления вашим таксопарком</h4>
+        <ul>
+          <li>Вместе с заездом мы открыли приложение iRuler для всех партнёров</li>
+          <li>Всё в одном месте: заявка на вывод партнёрской доли, аналитика таксопарка, статистика по каждому водителю, поддержка и новости компании</li>
+          <li>Карусель: скриншоты главных экранов</li>
+        </ul>
+        <div class="trig"><b>Триггер</b>В чате акции мы записали подробное видео: что где лежит и как этим пользоваться. Записывайтесь в заезд, вступайте в чат и смотрите</div>
+        <div class="act"><b>Действие</b>Записаться и вступить в чат</div>
+      </div>
+      <div class="callout"><span class="clbl">Нужно для этого</span><b>Фактура для карусели</b><p>Скриншоты приложения: какие экраны показываем (вывод доли, аналитика, статистика по водителю, поддержка)</p><p>Кто готовит?</p></div>
+    </section>
+
+    <section class="day" id="ch-30">
+      <div class="dhead"><div class="date">30.11 · пн</div>
+        <div class="meta"><span class="chip taxi">До старта 24 часа</span><span class="chip ghost">1 единица</span></div></div>
+      <div class="core"><span class="lbl">Суть дня</span><p>Сегодня последний день для идеального старта</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост</span><span class="ufor">все</span></div>
+        <h4>Последний день перед стартом</h4>
+        <ul>
+          <li>Завтра, 1 декабря, старт заезда</li>
+          <li>В зачёт идёт оборот только тех новых водителей, которых вы подключите с 1 декабря. Каждый день декабря работает на вашу персональную цель</li>
+          <li>Сегодня последний день, чтобы записаться и стартовать вместе со всеми</li>
+          <li>Записаться можно и после старта, регистрация открыта до 10.12. Но тогда придётся догонять</li>
+        </ul>
+        <div class="trig"><b>Триггер</b>До старта заезда 24 часа</div>
+        <div class="act"><b>Действие</b>Записаться сегодня</div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<!-- ================= ЧАТ ================= -->
+<section class="zone wide" id="chat">
+  <div class="ztitle"><span class="ztag">Один чат в TG и один в MAX</span><h2>Чат акции: тезисный план</h2><button class="back" data-go="grid">← К сетке</button></div>
+  <div class="legend">
+    <span><i class="sw c"></i>Суть дня</span>
+    <span><i class="sw p"></i>Сообщение или пост</span>
+    <span><i class="sw m"></i>Максим: видео, кружок, эфир</span>
+    <span><i class="sw h"></i>Действие участника</span>
+    <span><i class="sw x"></i>Выноска: что нужно, разбираем на созвоне</span>
+  </div>
+  <div class="track">
+
+    <section class="day" id="chat-24">
+      <div class="dhead"><div class="date">24.11 · вт</div>
+        <div class="meta"><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Встретить первых записавшихся</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Приветствие</span><span class="ufor">2–3 строки</span></div>
+        <h4>Добро пожаловать в заезд</h4>
+        <ul>
+          <li>Это чат участников «Новогоднего заезда»</li>
+          <li>Здесь всё об акции до финиша. Главное в закрепе</li>
+        </ul>
+      </div>
+      <div class="tie">↓ сразу следом</div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Закреп</span><span class="ufor">главное сообщение</span></div>
+        <h4>Что здесь будет и куда обращаться</h4>
+        <ul>
+          <li>Что будет в чате: видео-обзор приложения, эфир с Максимом и его запись, полезные материалы к старту</li>
+          <li>Даты: 26.11 эфир, 1.12 старт, 30.12 финиш</li>
+          <li>Вы соревнуетесь только с таксопарками своего масштаба: три лиги</li>
+          <li>Не получается с приложением: отдел заботы. Вопросы по акции: пишите здесь</li>
+        </ul>
+        <div class="act"><b>Действие</b>Задавать вопросы в чате</div>
+      </div>
+    </section>
+
+    <section class="day" id="chat-25">
+      <div class="dhead"><div class="date">25.11 · ср</div>
+        <div class="meta"><span class="chip ghost">3 единицы</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Показать приложение и собрать вопросы к эфиру</p></div>
+      <div class="unit m">
+        <div class="uhead"><span class="unum">1 · Видео · днём</span><span class="ufor">видео + подпись</span></div>
+        <h4>Обзор приложения</h4>
+        <ul>
+          <li>Страница акции: условия, сроки, призы</li>
+          <li>Где персональная цель и шкала</li>
+          <li>Что ещё есть: вывод доли, аналитика, статистика по водителю, поддержка, уведомления</li>
+          <li>Если что-то не работает: поддержка в приложении</li>
+        </ul>
+        <div class="act"><b>Действие</b>Открыть приложение и найти акцию</div>
+      </div>
+      <div class="callout"><span class="clbl">Нужно для этого</span><b>Видео-обзор: формат и кто делает</b><p>Максим в кадре или запись экрана с голосом? Кто записывает и монтирует?</p></div>
+      <div class="unit m">
+        <div class="uhead"><span class="unum">2 · Кружок Максима · вечер</span><span class="ufor">кружок</span></div>
+        <h4>Задайте вопросы к эфиру</h4>
+        <ul>
+          <li>Завтра эфир, расскажу, как устроен заезд</li>
+          <li>Задайте вопросы заранее, разберу их в эфире</li>
+        </ul>
+      </div>
+      <div class="callout"><span class="clbl">Нужно для этого</span><b>Как собираем вопросы</b><p>Форма, комментарии под постом или ответы прямо в чате?</p></div>
+      <div class="tie">↓ сразу следом</div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">3 · Пост</span><span class="ufor">сбор вопросов</span></div>
+        <h4>Ваши вопросы к эфиру</h4>
+        <ul>
+          <li>Пишите, что непонятно об акции: Максим ответит в эфире</li>
+          <li>Где собираем: <span class="q">форма или комментарии</span></li>
+        </ul>
+        <div class="act"><b>Действие</b>Задать вопрос</div>
+      </div>
+    </section>
+
+    <section class="day" id="chat-26">
+      <div class="dhead"><div class="date">26.11 · чт</div>
+        <div class="meta"><span class="chip ghost">3 единицы + 1 по желанию</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Привести на эфир</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост · утро</span><span class="ufor">пост</span></div>
+        <h4>Сегодня эфир</h4>
+        <ul>
+          <li>Сегодня в <span class="q">время</span>, 20–30 минут</li>
+          <li>Что разберём: персональная цель, подарки, главные призы и лиги</li>
+          <li>Вчера собирали вопросы: ещё можно дописать свой</li>
+        </ul>
+        <div class="act"><b>Действие</b>Дописать вопрос, прийти на эфир</div>
+      </div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Напоминание</span><span class="ufor"><span class="q">час или 10 минут</span></span></div>
+        <h4>Эфир скоро</h4>
+        <ul><li>Скоро начинаем, ссылку пришлём к старту</li></ul>
+      </div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">3 · Ссылка</span><span class="ufor">в момент старта</span></div>
+        <h4>Начинаем</h4>
+        <ul><li>Подключайтесь, ссылка</li></ul>
+        <div class="act"><b>Действие</b>Подключиться к эфиру</div>
+      </div>
+      <div class="goal">
+        <svg class="garrow" viewBox="0 0 60 70" aria-hidden="true"><path d="M8 2 C 2 30, 20 52, 52 60" fill="none" stroke="currentColor" stroke-width="3"/><path d="M42 50 L54 61 L40 66" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>
+        <span class="clbl">Цель эфира</span>
+        <b>1. Привлечь к участию тех, кто ещё не записался</b>
+        <b>2. Мотивировать на участие тех, кто уже зарегистрировался</b>
+      </div>
+      <div class="unit opt">
+        <div class="uhead"><span class="unum">4 · По желанию</span><span class="ufor">после эфира, 1 строка</span></div>
+        <h4>Спасибо, кто был</h4>
+        <ul><li>Запись завтра здесь</li></ul>
+      </div>
+    </section>
+
+    <section class="day" id="chat-27">
+      <div class="dhead"><div class="date">27.11 · пт</div>
+        <div class="meta"><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Эфир для тех, кто не был: запись и конспект отдельно</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост · ~12:00</span><span class="ufor">пост + ссылка</span></div>
+        <h4>Запись эфира</h4>
+        <ul>
+          <li>Что разобрали: персональная цель, подарки, главные призы и лиги, ответы на ваши вопросы</li>
+          <li>Ссылка на запись</li>
+        </ul>
+        <div class="act"><b>Действие</b>Посмотреть запись</div>
+      </div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">2 · Пост · ~18:00</span><span class="ufor">пост + ссылка</span></div>
+        <h4>Конспект эфира</h4>
+        <ul>
+          <li>Не успели посмотреть? Собрали главное в конспект</li>
+          <li>Можно скачать и держать под рукой</li>
+        </ul>
+        <div class="act"><b>Действие</b>Скачать конспект</div>
+      </div>
+    </section>
+
+    <section class="day" id="chat-28">
+      <div class="dhead"><div class="date">28.11 · сб</div>
+        <div class="meta"><span class="chip ghost">1 единица</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Полезный материал к старту: как выделить свой таксопарк</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост + PDF</span><span class="ufor">кейс</span></div>
+        <h4>Кейс Сергея: чем он выделил свой таксопарк</h4>
+        <ul>
+          <li>Подводка: до старта три дня, самое время подготовиться. Посмотрите, как это сделал другой партнёр</li>
+          <li>Сергей подключил 10 водителей за две недели</li>
+          <li>Главное в кейсе: чем он выделил свой таксопарк и какое предложение сделал водителям</li>
+          <li>В конце ссылка или прикреплённый PDF</li>
+        </ul>
+        <div class="act"><b>Действие</b>Прочитать кейс и придумать своё предложение</div>
+      </div>
+    </section>
+
+    <section class="day" id="chat-29">
+      <div class="dhead"><div class="date">29.11 · вс</div>
+        <div class="meta"><span class="chip ghost">1 единица</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Полезный материал к старту: сколько принесут новые водители</p></div>
+      <div class="unit">
+        <div class="uhead"><span class="unum">1 · Пост + ссылка</span><span class="ufor">калькулятор</span></div>
+        <h4>Посчитайте свою долю</h4>
+        <ul>
+          <li>С 1 декабря вы будете подключать новых водителей</li>
+          <li>Кроме подарка и призов заезда каждый активный водитель приносит вам партнёрскую долю</li>
+          <li>Посчитайте, сколько: например, 10 водителей × 80 000 ₽ × 4% = 16 000 ₽ в месяц до налогов</li>
+          <li>Ссылка на калькулятор</li>
+        </ul>
+        <div class="act"><b>Действие</b>Посчитать свою долю</div>
+      </div>
+    </section>
+
+    <section class="day" id="chat-30">
+      <div class="dhead"><div class="date">30.11 · пн</div>
+        <div class="meta"><span class="chip ghost">2 единицы</span></div></div>
+      <div class="core c"><span class="lbl">Суть дня</span><p>Завтра старт</p></div>
+      <div class="unit m">
+        <div class="uhead"><span class="unum">1 · Кружок Максима</span><span class="ufor">мотивационно-информационный</span></div>
+        <h4>Завтра стартуем</h4>
+        <ul>
+          <li>Завтра, 1 декабря, старт заезда</li>
+          <li>С этого дня в зачёт идут новые водители</li>
+          <li>Удачи на старте, мы рядом в чате</li>
+        </ul>
+      </div>
+      <div class="unit opt">
+        <div class="uhead"><span class="unum">2 · Пост</span><span class="ufor">предложение, обсудить</span></div>
+        <h4>Готовы к старту: чек-лист</h4>
+        <ul>
+          <li>Откройте приложение и проверьте, что видите акцию</li>
+          <li>Составьте список первых, кого позовёте водителями</li>
+          <li>Подготовьте своё предложение водителям: кейс Сергея в помощь</li>
+          <li>Посчитайте, сколько принесут водители: калькулятор в помощь</li>
+          <li>Вопросы задавайте здесь</li>
+        </ul>
+        <div class="act"><b>Действие</b>Пройти чек-лист</div>
+      </div>
+    </section>
+  </div>
+</section>
+
+</div>
+</div>
+
+<div class="help">Перетаскивайте карту мышью · Масштаб: ⌘/Ctrl + колесо или щипок · Клавиши 0–4, Esc к сетке · ✎ Редактировать: правка текста, ⧉ дублировать, × удалить</div>
+
+<script>
+(function(){
+  var vp=document.getElementById('vp'), world=document.getElementById('world');
+  var s=1,tx=0,ty=0,anim=null;
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function apply(){world.style.transform='translate('+tx+'px,'+ty+'px) scale('+s+')';}
+  function clamp(v){return Math.max(0.06,Math.min(3,v));}
+  function relTo(el,anc){var x=0,y=0,e=el;while(e&&e!==anc){x+=e.offsetLeft;y+=e.offsetTop;e=e.offsetParent;}return {x:x,y:y,w:el.offsetWidth,h:el.offsetHeight};}
+  function barH(){return document.querySelector('.bar').offsetHeight;}
+  function target(el,pad){
+    var r=el===world?{x:0,y:0,w:world.offsetWidth,h:world.offsetHeight}:relTo(el,world);
+    var top=barH(), vw=vp.clientWidth, vh=vp.clientHeight-top;
+    var ns=clamp(Math.min((vw-2*pad)/r.w,(vh-2*pad)/r.h,1.6));
+    return {s:ns,tx:(vw-r.w*ns)/2-r.x*ns,ty:top+(vh-r.h*ns)/2-r.y*ns};
+  }
+  function flyTo(el,pad,instant){
+    if(!el)return; var t=target(el,pad==null?40:pad);
+    if(anim)cancelAnimationFrame(anim);
+    if(instant||reduce){s=t.s;tx=t.tx;ty=t.ty;apply();return;}
+    var s0=s,x0=tx,y0=ty,t0=performance.now(),D=750;
+    (function step(now){var k=Math.min(1,(now-t0)/D);k=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+      s=s0+(t.s-s0)*k;tx=x0+(t.tx-x0)*k;ty=y0+(t.ty-y0)*k;apply();
+      if(k<1)anim=requestAnimationFrame(step);else anim=null;})(t0);
+  }
+  function go(id){
+    if(id==='all')return flyTo(world,20);
+    var el=document.getElementById(id); if(!el)return;
+    var isDay=el.classList.contains('day');
+    flyTo(el,isDay?50:40);
+    if(isDay){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+  }
+  function zoomAt(cx,cy,k){var ns=clamp(s*k);var wx=(cx-tx)/s,wy=(cy-ty)/s;s=ns;tx=cx-wx*s;ty=cy-wy*s;apply();}
+
+  vp.addEventListener('wheel',function(e){e.preventDefault();if(anim){cancelAnimationFrame(anim);anim=null;}
+    if(e.ctrlKey||e.metaKey){zoomAt(e.clientX,e.clientY,Math.exp(-e.deltaY*0.01));}
+    else{tx-=e.deltaX;ty-=e.deltaY;apply();}},{passive:false});
+
+  var down=null;
+  vp.addEventListener('pointerdown',function(e){if(e.button!==0)return;if(document.body.classList.contains('editing')&&e.target.closest('h2,h3,h4,li,p,b,i,ol,ul,.card,.unit,.callout,.goal,.core,.chip,.rowh,.gh,.phase,.lead,.edt,.tie,.date'))return;down={x:e.clientX,y:e.clientY,tx:tx,ty:ty,moved:false,t:e.target};
+    if(anim){cancelAnimationFrame(anim);anim=null;}});
+  window.addEventListener('pointermove',function(e){if(!down)return;var dx=e.clientX-down.x,dy=e.clientY-down.y;
+    if(!down.moved&&Math.hypot(dx,dy)>5){down.moved=true;vp.classList.add('drag');}
+    if(down.moved){tx=down.tx+dx;ty=down.ty+dy;apply();}});
+  window.addEventListener('pointerup',function(){if(!down)return;var d=down;down=null;vp.classList.remove('drag');
+    if(!d.moved&&!document.body.classList.contains('editing')){var g=d.t.closest&&d.t.closest('[data-go]');if(g)go(g.getAttribute('data-go'));}});
+
+  document.querySelectorAll('[data-nav]').forEach(function(b){b.addEventListener('click',function(){go(b.getAttribute('data-nav'));});});
+  document.querySelectorAll('[data-zoom]').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-zoom')>0?1.25:0.8;zoomAt(vp.clientWidth/2,vp.clientHeight/2,k);});});
+  window.addEventListener('keydown',function(e){if(e.target.isContentEditable||document.body.classList.contains('editing'))return;var m={'0':'all','1':'grid','2':'channels','3':'chat','4':'todo','Escape':'grid'};
+    if(m[e.key]){go(m[e.key]);}
+    else if(e.key==='+'||e.key==='='){zoomAt(vp.clientWidth/2,vp.clientHeight/2,1.25);}
+    else if(e.key==='-'){zoomAt(vp.clientWidth/2,vp.clientHeight/2,0.8);}});
+
+  // стрелки от концовки к следующему дню
+  function drawArrows(){
+    document.querySelectorAll('[data-arrows]').forEach(function(track){
+      var svg=track.querySelector('svg.arrows'), days=track.querySelectorAll('.day');
+      var html='<defs><marker id="ah'+track.parentNode.id+'" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--arrow)"/></marker></defs>';
+      for(var i=0;i<days.length-1;i++){
+        var h=days[i].querySelector('.hook'), o=days[i+1].querySelector('.open'); if(!h||!o)continue;
+        var a=relTo(h,track), b=relTo(o,track);
+        var x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x-2, y2=b.y+b.h/2, mx=(x1+x2)/2;
+        html+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2+'" fill="none" stroke="var(--arrow)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah'+track.parentNode.id+')"/>';
+      }
+      svg.setAttribute('width',track.offsetWidth);svg.setAttribute('height',track.offsetHeight);svg.innerHTML=html;
+    });
+  }
+  function init(){drawArrows();flyTo(document.getElementById('grid'),40,true);}
+  if(document.fonts&&document.fonts.ready){document.fonts.ready.then(init);}else{window.addEventListener('load',init);}
+  window.addEventListener('resize',drawArrows);
+})();
+</script>
+<script>
+(function(){
+  var world=document.getElementById('world'), body=document.body;
+  var bEdit=document.getElementById('btnEdit'), bSave=document.getElementById('btnSave'), bClear=document.getElementById('btnClear');
+  var KEY='etap2-karta-draft', handle=null, timer=null;
+  var TARGETS='.unit,.card,.callout,.goal,.core';
+  function store(fn){try{return fn();}catch(e){return null;}}
+  function toast(t){var d=document.createElement('div');d.className='toast';d.textContent=t;body.appendChild(d);setTimeout(function(){d.remove();},2600);}
+  function addTools(root){root.querySelectorAll(TARGETS).forEach(function(el){if(el.querySelector(':scope > .edt'))return;
+    var t=document.createElement('span');t.className='edt';t.contentEditable='false';
+    t.innerHTML='<button type="button" data-act="dup" title="Дублировать">⧉</button><button type="button" data-act="del" title="Удалить">×</button>';el.appendChild(t);});}
+  function stripTools(root){root.querySelectorAll('.edt').forEach(function(n){n.remove();});}
+  function setEdit(on){
+    body.classList.toggle('editing',on);world.contentEditable=on?'true':'false';
+    bEdit.classList.toggle('on',on);bEdit.textContent=on?'Готово':'✎ Редактировать';bSave.hidden=!on;bClear.hidden=!on;
+    if(on)addTools(world);else{stripTools(world);world.removeAttribute('contenteditable');}
+  }
+  bEdit.addEventListener('click',function(){setEdit(!body.classList.contains('editing'));});
+  world.addEventListener('click',function(e){var b=e.target.closest('.edt button');if(!b)return;e.preventDefault();
+    var el=b.closest(TARGETS);if(!el)return;
+    if(b.dataset.act==='del'){el.remove();}
+    else{var c=el.cloneNode(true);stripTools(c);el.after(c);addTools(el.parentNode);}
+    draft();});
+  function tidy(c){
+    c.querySelectorAll('.edt,.toast,.draftbar').forEach(function(n){n.remove();});
+    c.querySelectorAll('[contenteditable]').forEach(function(n){n.removeAttribute('contenteditable');});
+    c.querySelectorAll('.flash').forEach(function(n){n.classList.remove('flash');});
+    c.querySelector('#world').removeAttribute('style');
+    var be=c.querySelector('#btnEdit');be.className='';be.textContent='✎ Редактировать';
+    c.querySelector('#btnSave').setAttribute('hidden','');c.querySelector('#btnClear').setAttribute('hidden','');
+    c.querySelector('#vp').classList.remove('drag');
+    return c;
+  }
+  function cleanHTML(){
+    var c=tidy(document.documentElement.cloneNode(true));
+    var b=c.querySelector('body');b.classList.remove('editing');if(!b.className)b.removeAttribute('class');
+    return '<!doctype html>\n'+c.outerHTML;
+  }
+  // страница на claude.ai: сохраняем новой версией для всех
+  var art=null;
+  if(window.claude&&window.claude.use){window.claude.use('artifact').then(function(a){art=a;},function(){});}
+  function hostedHTML(){
+    var c=tidy(document.body.cloneNode(true));
+    var st=document.head.querySelector('style'), reset=st?st.textContent:'';
+    return '<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>'+reset+'</style></head><body>'+c.innerHTML+'</body></html>';
+  }
+  async function save(){
+    if(art){
+      var h=hostedHTML();
+      store(function(){localStorage.removeItem(KEY);});
+      toast('Сохраняю…');
+      try{await art.publish(h);}
+      catch(e){
+        var c=world.cloneNode(true);stripTools(c);store(function(){localStorage.setItem(KEY,c.innerHTML);});
+        var code=e&&e.code;
+        if(code==='conflict')toast('Кто-то сохранил раньше вас. Страница обновится, ваши правки останутся в черновике');
+        else if(code==='not_granted'||code==='not_writer')toast('У вас доступ только на просмотр: попросите права на редактирование');
+        else toast('Не получилось сохранить, попробуйте ещё раз');
+      }
+      return;
+    }
+    var html=cleanHTML();
+    if(window.showSaveFilePicker){
+      try{
+        if(!handle)handle=await window.showSaveFilePicker({suggestedName:'etap2-karta.html',types:[{description:'HTML',accept:{'text/html':['.html']}}]});
+        var w=await handle.createWritable();await w.write(html);await w.close();
+        store(function(){localStorage.removeItem(KEY);});toast('Сохранено в файл');return;
+      }catch(e){if(e&&e.name==='AbortError')return;}
+    }
+    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));a.download='etap2-karta.html';
+    body.appendChild(a);a.click();a.remove();
+    store(function(){localStorage.removeItem(KEY);});toast('Скачан etap2-karta.html: замените им старый файл');
+  }
+  bSave.addEventListener('click',save);
+  window.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(body.classList.contains('editing'))save();}});
+  function draft(){clearTimeout(timer);timer=setTimeout(function(){var c=world.cloneNode(true);stripTools(c);
+    store(function(){localStorage.setItem(KEY,c.innerHTML);});},500);}
+  world.addEventListener('input',draft);
+  // новый текст в режиме редактирования пишется красным
+  world.addEventListener('beforeinput',function(e){
+    if(!body.classList.contains('editing'))return;
+    var t=e.inputType; if(t!=='insertText'&&t!=='insertReplacementText'&&t!=='insertFromPaste')return;
+    var txt=e.data; if(txt==null&&e.dataTransfer)txt=e.dataTransfer.getData('text/plain'); if(!txt)return;
+    var sel=window.getSelection(); if(!sel.rangeCount)return;
+    var r=sel.getRangeAt(0), n=r.startContainer, el=n.nodeType===1?n:n.parentNode;
+    if(el.closest&&el.closest('.ed')&&r.collapsed&&t==='insertText')return;
+    e.preventDefault();
+    r.deleteContents();
+    var sp=document.createElement('span');sp.className='ed';sp.textContent=txt;
+    r.insertNode(sp);
+    var nr=document.createRange();nr.setStart(sp.firstChild,txt.length);nr.collapse(true);
+    sel.removeAllRanges();sel.addRange(nr);
+    draft();
+  });
+  bClear.addEventListener('click',function(){
+    world.querySelectorAll('.ed').forEach(function(sp){sp.replaceWith(document.createTextNode(sp.textContent));});
+    world.normalize();draft();toast('Красное выделение снято');
+  });
+  var saved=store(function(){return localStorage.getItem(KEY);});
+  if(saved){
+    var c=world.cloneNode(true);stripTools(c);
+    if(saved!==c.innerHTML){
+      var bar=document.createElement('div');bar.className='draftbar';
+      bar.innerHTML='<span>Есть несохранённые правки с прошлого раза</span><button type="button" data-d="y">Восстановить</button><button type="button" data-d="n">Отбросить</button>';
+      body.appendChild(bar);
+      bar.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;
+        if(b.dataset.d==='y'){world.innerHTML=saved;stripTools(world);world.querySelectorAll('[contenteditable]').forEach(function(n){n.removeAttribute('contenteditable');});setEdit(true);}
+        else{store(function(){localStorage.removeItem(KEY);});}
+        bar.remove();});
+    }
+  }
+})();
+</script>
+</body>
+</html>
